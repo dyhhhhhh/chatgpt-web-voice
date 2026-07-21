@@ -5,9 +5,11 @@
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688)](https://fastapi.tiangolo.com/)
 
-Self-hosted **ChatGPT Web voice gateway**.
+Reverse-engineered **ChatGPT.com Web Voice** (`/realtime/wm` + WebRTC + DataChannel) gateway.
 
-> Browser owns WebRTC audio. Server only proxies SDP and image upload.
+Use a normal ChatGPT **web free-account** `access_token` to drive live voice calls from your own frontend/domain — no official Realtime API key required for this web path.
+
+> Browser terminates WebRTC media. Server only: account pool, SDP proxy to `chatgpt.com/realtime/wm`, image upload for in-call `relay_message`, session binding.
 
 ## Live demo
 
