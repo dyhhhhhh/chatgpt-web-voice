@@ -1,94 +1,56 @@
 # chatgpt-web-voice
 
+[![Live Demo](https://img.shields.io/badge/demo-voice.peekcart.com-10a37f)](https://voice.peekcart.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-async-009688)](https://fastapi.tiangolo.com/)
+
 Self-hosted **ChatGPT Web voice gateway**.
+
+> Browser owns WebRTC audio. Server only proxies SDP and image upload.
 
 ## Live demo
 
-- **Implemented product**: [https://voice.peekcart.com/](https://voice.peekcart.com/)
+- **Product**: https://voice.peekcart.com/
+- **Source**: this repository
 
-This repository open-sources the **voice-only** stack used by that deployment:
-WebRTC SDP proxy, in-call text/image relay, captions, and auto-interrupt.
+<p align="center">
+  <img src="docs/voice-demo.png" alt="chatgpt-web-voice demo" width="360" />
+</p>
 
-Browser owns WebRTC audio.  
-This service only:
+## One-command start
 
-- picks a web `access_token`
-- exchanges SDP via `POST https://chatgpt.com/realtime/wm`
-- uploads images for in-call `relay_message`
-- binds `voice_session_id -> token`
+```bash
+cp data/accounts.example.json data/accounts.json   # put web access_token
+cp .env.example .env                               # set VOICE_AUTH_KEY
+docker compose up --build
+# open http://127.0.0.1:8000/voice.html
+```
 
-No chat2 / admin / register / image-gen stack is included.
-
-## Features
-
-- Realtime voice call (wingman / advanced / standard)
-- In-call text via DataChannel `relay_message`
-- In-call image via `/api/voice/upload-image` + `sediment://file_id`
-- Auto barge-in interrupt (`action_request: stop_speaking`)
-- Captions from `chat_message_delta`
-- Voice session token binding
-
-## Quick start
-
-### 1) Install
+Without Docker:
 
 ```bash
 python -m venv .venv
-# Windows
-.venv\Scriptsctivate
-# Linux/macOS
+# Windows: .venv\Scriptsctivate
 source .venv/bin/activate
-
 pip install -r requirements.txt
-```
-
-### 2) Configure accounts
-
-```bash
 cp data/accounts.example.json data/accounts.json
-# put your ChatGPT web access_token into data/accounts.json
-```
-
-```bash
-cp .env.example .env
-# set VOICE_AUTH_KEY
-```
-
-### 3) Run
-
-```bash
 export VOICE_AUTH_KEY=change-me
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-Open:
+## Features
 
-- `http://127.0.0.1:8000/voice.html`
+- Realtime voice call (`/realtime/wm` + WebRTC)
+- In-call text via DataChannel `relay_message`
+- In-call image via `/api/voice/upload-image` + `sediment://file_id`
+- Auto barge-in interrupt (`action_request: stop_speaking`)
+- Captions from `chat_message_delta`
+- Voice session token binding (`voice_session_id`)
 
-Use the same key in the page advanced settings.
+## Topics
 
-### Docker
-
-```bash
-cp data/accounts.example.json data/accounts.json
-cp .env.example .env
-docker compose up --build
-```
-
-## API
-
-| Method | Path | Description |
-|---|---|---|
-| GET | `/api/voice/health` | health |
-| POST | `/api/voice/session` | offer SDP -> answer SDP |
-| POST | `/api/voice/upload-image` | upload image, return `file_id` |
-| POST | `/api/voice/session/release` | unbind voice session |
-
-Auth:
-
-```http
-Authorization: Bearer <VOICE_AUTH_KEY>
-```
+`chatgpt` `voice` `webrtc` `fastapi` `self-hosted` `realtime` `wingman` `datachannel`
 
 ## Architecture
 
@@ -107,7 +69,20 @@ chatgpt.com
   /realtime/wm + Azure WebRTC media + files upload
 ```
 
-## In-call text / image protocol
+## API
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/voice/health` | health |
+| POST | `/api/voice/session` | offer SDP to answer SDP |
+| POST | `/api/voice/upload-image` | upload image, return `file_id` |
+| POST | `/api/voice/session/release` | unbind voice session |
+
+```http
+Authorization: Bearer <VOICE_AUTH_KEY>
+```
+
+## In-call protocol
 
 Envelope:
 
@@ -152,16 +127,21 @@ Interrupt:
 
 ## Security
 
-- Do **not** commit real `accounts.json` / tokens
+- Do not commit real `accounts.json` / tokens
 - Frontend only holds gateway key, never OpenAI web token
 - Use HTTPS in production
 
+## Changelog
+
+See [Releases](https://github.com/dyhhhhhh/chatgpt-web-voice/releases) (`v0.1.0`).
+
 ## License / disclaimer
 
-Research / self-hosted gateway.  
-Requires your own ChatGPT login session token.  
+MIT. Research / self-hosted gateway.  
+Requires your own ChatGPT web login session token.  
 Not affiliated with OpenAI. Follow OpenAI ToS and local laws.
 
-## Live deployment
+## Links
 
-Implemented product: **https://voice.peekcart.com/**
+- Live: https://voice.peekcart.com/
+- Issues: https://github.com/dyhhhhhh/chatgpt-web-voice/issues
