@@ -1,0 +1,1707 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>语音通话</title>
+  <style>
+    :root {
+      --bg: #f7f7f8;
+      --card: #ffffff;
+      --text: #0d0d0d;
+      --sub: #6b7280;
+      --line: #e5e7eb;
+      --green: #10a37f;
+      --green-press: #0e8f70;
+      --red: #ef4444;
+      --red-press: #dc2626;
+      --shadow: 0 10px 40px rgba(0,0,0,.06);
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .wrap {
+      min-height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px 32px;
+    }
+    .brand {
+      position: fixed; top: 18px; left: 0; right: 0;
+      text-align: center; color: var(--sub); font-size: 13px; letter-spacing: .02em;
+    }
+    .stage {
+      width: min(420px, 100%);
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      box-shadow: var(--shadow);
+      padding: 28px 22px 22px;
+      text-align: center;
+    }
+    .orb-wrap {
+      position: relative;
+      width: 220px; height: 220px;
+      margin: 8px auto 18px;
+      display: grid; place-items: center;
+    }
+    .orb {
+      width: 150px; height: 150px; border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #7dffe0 0%, #10a37f 42%, #0b7f64 78%, #075a48 100%);
+      box-shadow: 0 0 0 0 rgba(16,163,127,.35), 0 20px 50px rgba(16,163,127,.25);
+      transition: transform .25s ease, box-shadow .25s ease, filter .25s ease;
+      filter: saturate(1);
+    }
+    .orb.idle { animation: breath 2.8s ease-in-out infinite; }
+    .orb.listening { animation: pulse 1.6s ease-in-out infinite; }
+    .orb.speaking {
+      animation: speak 0.9s ease-in-out infinite;
+      box-shadow: 0 0 0 12px rgba(16,163,127,.12), 0 20px 60px rgba(16,163,127,.35);
+    }
+    .orb.connecting { filter: grayscale(.2) brightness(.95); animation: breath 1.2s ease-in-out infinite; }
+    .orb.error { background: radial-gradient(circle at 35% 30%, #fecaca, #ef4444 60%, #991b1b); box-shadow: none; }
+    @keyframes breath {
+      0%,100% { transform: scale(1); }
+      50% { transform: scale(1.04); }
+    }
+    @keyframes pulse {
+      0%,100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(16,163,127,.28); }
+      50% { transform: scale(1.06); box-shadow: 0 0 0 18px rgba(16,163,127,.00); }
+    }
+    @keyframes speak {
+      0%,100% { transform: scale(1.02); }
+      50% { transform: scale(1.1); }
+    }
+    .status {
+      font-size: 28px; font-weight: 650; letter-spacing: -0.02em; margin: 0 0 6px;
+    }
+    .sub {
+      color: var(--sub); font-size: 14px; min-height: 20px; margin: 0 0 18px;
+    }
+    .meters {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px;
+    }
+    .meter-card {
+      background: #fafafa; border: 1px solid var(--line); border-radius: 14px; padding: 10px;
+      text-align: left;
+    }
+    .meter-card span { display:block; font-size: 12px; color: var(--sub); margin-bottom: 6px; }
+    meter { width: 100%; height: 14px; }
+    .controls {
+      display: flex; justify-content: center; align-items: center; gap: 14px; margin: 8px 0 4px;
+    }
+    .btn-main {
+      width: 76px; height: 76px; border-radius: 50%; border: 0; cursor: pointer;
+      display: grid; place-items: center; font-size: 15px; font-weight: 650; color: #fff;
+      background: var(--green); box-shadow: 0 10px 24px rgba(16,163,127,.35);
+    }
+    .btn-main:active { background: var(--green-press); transform: scale(.98); }
+    .btn-main.stop {
+      background: var(--red); box-shadow: 0 10px 24px rgba(239,68,68,.28);
+    }
+    .btn-main.stop:active { background: var(--red-press); }
+    .btn-side {
+      width: 48px; height: 48px; border-radius: 50%; border: 1px solid var(--line);
+      background: #fff; cursor: pointer; color: #111; font-size: 18px;
+    }
+    .btn-side:disabled { opacity: .4; cursor: not-allowed; }
+    .device {
+      margin-top: 14px; text-align: left;
+    }
+    .device label { font-size: 12px; color: var(--sub); }
+    select, input[type=password], input[type=text] {
+      width: 100%; margin-top: 6px; border: 1px solid var(--line); border-radius: 12px;
+      padding: 10px 12px; background: #fff; font-size: 14px;
+    }
+    .advanced {
+      margin-top: 10px; text-align: left;
+    }
+    .advanced summary {
+      cursor: pointer; color: var(--sub); font-size: 13px; user-select: none;
+    }
+    .advanced .box { margin-top: 10px; }
+    .toast {
+      position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+      background: rgba(17,24,39,.92); color: #fff; padding: 10px 14px; border-radius: 999px;
+      font-size: 13px; opacity: 0; pointer-events: none; transition: opacity .2s ease;
+      max-width: 90vw;
+    }
+    .toast.show { opacity: 1; }
+    audio { display: none; }
+    .composer {
+      margin-top: 14px; text-align: left;
+      border-top: 1px solid var(--line); padding-top: 12px;
+    }
+    .composer-row {
+      display: flex; gap: 8px; align-items: flex-end;
+    }
+    .composer textarea {
+      flex: 1; min-height: 44px; max-height: 120px; resize: vertical;
+      border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px;
+      font-size: 14px; font-family: inherit; background: #fff;
+    }
+    .composer .btn-send, .composer .btn-file {
+      height: 44px; min-width: 44px; border-radius: 12px; border: 1px solid var(--line);
+      background: #fff; cursor: pointer; font-size: 14px; padding: 0 12px;
+    }
+    .composer .btn-send {
+      background: var(--green); color: #fff; border-color: transparent; font-weight: 650;
+    }
+    .composer .btn-send:disabled, .composer .btn-file:disabled { opacity: .45; cursor: not-allowed; }
+    .composer .hint { margin-top: 6px; font-size: 12px; color: var(--sub); min-height: 16px; }
+    .composer .pending-file {
+      display: none; align-items: center; justify-content: space-between; gap: 8px;
+      margin-top: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px;
+      background: #fafafa; font-size: 12px; color: var(--sub);
+    }
+    .composer .pending-file.show { display: flex; }
+    .composer .pending-file span {
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .composer .pending-file button {
+      border: 0; background: transparent; cursor: pointer; color: var(--sub); font-size: 16px;
+      width: 24px; height: 24px; border-radius: 999px;
+    }
+    .composer .pending-file button:hover { background: #f0f0f0; color: var(--text); }
+    .transcript {
+      margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); text-align: left;
+    }
+    .transcript-head {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px;
+    }
+    .transcript-title { font-size: 13px; font-weight: 650; }
+    .transcript-meta { color: var(--sub); font-size: 12px; }
+    .transcript-actions { display: flex; gap: 6px; }
+    .transcript-action {
+      width: 30px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 50%;
+      background: #fff; color: var(--sub); cursor: pointer; font-size: 16px; line-height: 1;
+    }
+    .transcript-action:hover { color: var(--text); background: #fafafa; }
+    .transcript-list {
+      height: 210px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--line); border-radius: 12px;
+      background: #fafafa; padding: 4px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    .caption-empty { margin: 0; padding: 18px 4px; color: var(--sub); font-size: 13px; text-align: center; }
+    .caption-log-line {
+      padding: 7px 0; border-bottom: 1px solid #eceef0; font-size: 12px; line-height: 1.55;
+      overflow-wrap: anywhere; white-space: pre-wrap;
+    }
+    .caption-log-line:last-child { border-bottom: 0; }
+    .caption-log-time { color: var(--sub); }
+    .caption-log-role { font-weight: 700; color: var(--sub); }
+    .caption-log-role.user { color: var(--green); }
+    .caption-log-content { color: var(--text); }
+  </style>
+</head>
+<body>
+  <div class="brand">语音通话</div>
+  <div class="wrap">
+    <div class="stage">
+      <div class="orb-wrap"><div id="orb" class="orb idle"></div></div>
+      <div id="statusText" class="status">准备就绪</div>
+      <div id="subText" class="sub">点击下方按钮开始</div>
+
+      <div class="meters">
+        <div class="meter-card"><span>我的声音</span><meter id="localLevel" min="0" max="1" value="0"></meter></div>
+        <div class="meter-card"><span>对方声音</span><meter id="remoteLevel" min="0" max="1" value="0"></meter></div>
+      </div>
+
+      <div class="controls">
+        <button type="button" class="btn-side" id="btnMute" title="静音" disabled>🎤</button>
+        <button type="button" class="btn-main" id="btnMain" title="开始">开始</button>
+        <button type="button" class="btn-side" id="btnSpeaker" title="播放" disabled>🔊</button>
+      </div>
+
+      <div class="composer">
+        <div class="composer-row">
+          <textarea id="textInput" placeholder="通话中可发文本 / 图片…" disabled></textarea>
+          <button type="button" class="btn-file" id="btnFile" title="发送图片" disabled>📎</button>
+          <button type="button" class="btn-send" id="btnSend" title="发送文本" disabled>发送</button>
+        </div>
+        <input id="fileInput" type="file" accept="image/*" style="display:none" />
+        <div id="pendingFile" class="pending-file">
+          <span id="pendingFileName"></span>
+          <button type="button" id="btnClearFile" title="移除图片">×</button>
+        </div>
+        <div id="composerHint" class="hint">开始通话后可发送文本和图片</div>
+      </div>
+
+      <section class="transcript" aria-label="本次通话字幕">
+        <div class="transcript-head">
+          <div>
+            <div class="transcript-title">实时字幕</div>
+            <div id="transcriptMeta" class="transcript-meta">本次通话，刷新后清空</div>
+          </div>
+          <div class="transcript-actions">
+            <button type="button" class="transcript-action" id="btnExportTranscript" title="导出本次字幕" aria-label="导出本次字幕">&#8595;</button>
+            <button type="button" class="transcript-action" id="btnClearTranscript" title="清空显示字幕" aria-label="清空显示字幕">&#215;</button>
+          </div>
+        </div>
+        <div id="transcriptList" class="transcript-list" aria-live="polite"><p class="caption-empty">通话开始后会在这里显示字幕</p></div>
+      </section>
+
+      <div class="device">
+        <label>麦克风</label>
+        <select id="micSelect"><option value="">选择麦克风…</option></select>
+      </div>
+
+      <details class="advanced">
+        <summary>高级设置</summary>
+        <div class="box">
+          <label style="font-size:12px;color:var(--sub)">登录密钥</label>
+          <input id="token" type="password" placeholder="管理密钥 / API Key" />
+          <div class="row" style="margin-top:8px">
+            <label style="flex:1">voice
+              <select id="voice">
+                <option value="fathom">Arbor - 随和多才</option>
+                <option value="cove" selected>Cove - 沉稳直率</option>
+                <option value="juniper">Juniper - 开放豁达</option>
+                <option value="orbit">Spruce - 冷静坚定</option>
+                <option value="breeze">Breeze - 活泼认真</option>
+                <option value="maple">Maple - 开朗直率</option>
+                <option value="glimmer">Sol - 聪慧随性</option>
+                <option value="ember">Ember - 自信乐观</option>
+                <option value="vale">Vale - 聪颖好奇</option>
+              </select>
+            </label>
+            <input id="voiceMode" type="hidden" value="wingman" />
+          </div>
+          <label style="display:block;margin-top:10px">自动打断灵敏度
+            <select id="interruptSensitivity">
+              <option value="conservative">保守 - 适合外放或嘈杂环境</option>
+              <option value="balanced" selected>标准 - 平衡响应与误触</option>
+              <option value="sensitive">灵敏 - 小声插话也会打断</option>
+            </select>
+          </label>
+        </div>
+      </details>
+    </div>
+  </div>
+  <div id="toast" class="toast"></div>
+  <audio id="remoteAudio" autoplay playsinline></audio>
+
+<script>
+(function () {
+  'use strict';
+
+  var orb = document.getElementById('orb');
+  var statusText = document.getElementById('statusText');
+  var subText = document.getElementById('subText');
+  var localLevelEl = document.getElementById('localLevel');
+  var remoteLevelEl = document.getElementById('remoteLevel');
+  var micSelect = document.getElementById('micSelect');
+  var tokenEl = document.getElementById('token');
+  var voiceEl = document.getElementById('voice');
+  var remoteAudio = document.getElementById('remoteAudio');
+  var btnMain = document.getElementById('btnMain');
+  var btnMute = document.getElementById('btnMute');
+  var btnSpeaker = document.getElementById('btnSpeaker');
+  var toastEl = document.getElementById('toast');
+  var textInput = document.getElementById('textInput');
+  var btnSend = document.getElementById('btnSend');
+  var btnFile = document.getElementById('btnFile');
+  var fileInput = document.getElementById('fileInput');
+  var pendingFile = document.getElementById('pendingFile');
+  var pendingFileName = document.getElementById('pendingFileName');
+  var btnClearFile = document.getElementById('btnClearFile');
+  var composerHint = document.getElementById('composerHint');
+  var transcriptList = document.getElementById('transcriptList');
+  var transcriptMeta = document.getElementById('transcriptMeta');
+  var btnExportTranscript = document.getElementById('btnExportTranscript');
+  var btnClearTranscript = document.getElementById('btnClearTranscript');
+  var interruptSensitivity = document.getElementById('interruptSensitivity');
+
+  var pc = null;
+  var previewPc = null;
+  var previewAudio = null;
+  var previewMicStream = null;
+  var previewTimer = 0;
+  var previewStarting = false;
+  var localStream = null;
+  var remoteStream = null;
+  var audioCtx = null;
+  var localAnalyser = null, remoteAnalyser = null;
+  var localSource = null, remoteSource = null;
+  var localRaf = 0, remoteRaf = 0;
+  var starting = false;
+  var inCall = false;
+  var muted = false;
+  var sending = false;
+  var conversationId = '';
+  var parentMessageId = '';
+  var voiceSessionId = '';
+  var dcChannel = null; // WebRTC datachannel: oai-events
+  var pendingImageFile = null;
+  var isManagedVoiceHost = false; // opensource standalone: always require gateway key
+  var tokenStorageKey = 'chatgpt_web_voice_auth_key';
+  var voiceStorageKey = 'chatgpt_web_voice_voice_v1';
+  var chatgptVoiceOptions = ['breeze', 'cove', 'ember', 'fathom', 'glimmer', 'juniper', 'maple', 'orbit', 'vale'];
+  var chatgptVoiceAliases = { arbor: 'fathom', sol: 'glimmer', spruce: 'orbit' };
+  var chatgptVoiceMeta = {
+    fathom: { name: 'Arbor', description: '随和多才' },
+    cove: { name: 'Cove', description: '沉稳直率' },
+    juniper: { name: 'Juniper', description: '开放豁达' },
+    orbit: { name: 'Spruce', description: '冷静坚定' },
+    breeze: { name: 'Breeze', description: '活泼认真' },
+    maple: { name: 'Maple', description: '开朗直率' },
+    glimmer: { name: 'Sol', description: '聪慧随性' },
+    ember: { name: 'Ember', description: '自信乐观' },
+    vale: { name: 'Vale', description: '聪颖好奇' }
+  };
+  var maxLocalHistoryRounds = 12;
+  var maxLocalHistoryItems = maxLocalHistoryRounds * 2;
+  var maxLocalContextChars = 8000;
+  var currentSessionHistory = [];
+  var currentTranscript = [];
+  var maxTranscriptItems = 120;
+  var maxTranscriptChars = 32000;
+  var maxTranscriptItemChars = 1000;
+  var streamingAssistantText = '';
+  var streamingAssistantMessageId = '';
+  var lastAssistantHistoryAt = 0;
+  var remoteSpeakingUntil = 0;
+  var AUTO_INTERRUPT_RMS = 0.20;
+  var AUTO_INTERRUPT_HOLD_MS = 600;
+  var AUTO_INTERRUPT_COOLDOWN_MS = 1800;
+  var autoInterruptProfiles = {
+    conservative: { label: '保守', rms: 0.27, holdMs: 880 },
+    balanced: { label: '标准', rms: AUTO_INTERRUPT_RMS, holdMs: AUTO_INTERRUPT_HOLD_MS },
+    sensitive: { label: '灵敏', rms: 0.15, holdMs: 430 }
+  };
+  var currentAutoInterruptRms = AUTO_INTERRUPT_RMS;
+  var currentAutoInterruptHoldMs = AUTO_INTERRUPT_HOLD_MS;
+  var autoInterruptCalibrationEndsAt = 0;
+  var autoInterruptCalibrationSamples = [];
+  var autoInterruptAmbientRms = 0;
+  var assistantSpeaking = false;
+  var autoInterruptStartedAt = 0;
+  var autoInterruptCooldownUntil = 0;
+  var awaitingInterruptAck = false;
+  var playbackSuppressed = false;
+  var pendingVoicePreview = false;
+  var suppressPreviewAssistantUntil = 0;
+  var micPermissionWarmed = false;
+
+  function clampText(value, limit) {
+    var text = String(value || '').trim();
+    return text.length > limit ? text.slice(0, Math.max(0, limit - 1)) + '...' : text;
+  }
+
+  function clearStoredConversationHistory() {
+    try {
+      localStorage.removeItem('chatgpt_web_voice_history_v1');
+      localStorage.removeItem('chatgpt_web_voice_history_v1');
+    } catch (e) {}
+  }
+
+  function loadCurrentSessionHistory() {
+    return currentSessionHistory.filter(function (item) {
+      return item && (item.role === 'user' || item.role === 'assistant') && String(item.content || '').trim();
+    }).slice(-maxLocalHistoryItems);
+  }
+
+  function saveCurrentSessionHistory(items) {
+    currentSessionHistory = (items || []).slice(-maxLocalHistoryItems);
+  }
+
+  function resetCurrentSessionHistory() {
+    currentSessionHistory = [];
+    lastAssistantHistoryAt = 0;
+  }
+
+  function formatTranscriptTime(value) {
+    try {
+      return new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function renderTranscript() {
+    if (!transcriptList) return;
+    var shouldFollow = transcriptList.scrollHeight - transcriptList.scrollTop - transcriptList.clientHeight < 36;
+    transcriptList.textContent = '';
+    if (!currentTranscript.length) {
+      var empty = document.createElement('p');
+      empty.className = 'caption-empty';
+      empty.textContent = '通话开始后会在这里显示字幕';
+      transcriptList.appendChild(empty);
+      return;
+    }
+    var fragment = document.createDocumentFragment();
+    currentTranscript.forEach(function (item) {
+      var row = document.createElement('div');
+      row.className = 'caption-log-line';
+      var time = document.createElement('span');
+      time.className = 'caption-log-time';
+      time.textContent = '[' + formatTranscriptTime(item.ts) + '] ';
+      var role = document.createElement('span');
+      role.className = 'caption-log-role ' + item.role;
+      role.textContent = item.role === 'assistant' ? 'AI' : '你';
+      var content = document.createElement('span');
+      content.className = 'caption-log-content';
+      var attachmentText = (item.attachments || []).length ? ' [附图：' + item.attachments.join('、') + ']' : '';
+      content.textContent = ' ' + item.content + attachmentText;
+      row.appendChild(time);
+      row.appendChild(role);
+      row.appendChild(content);
+      fragment.appendChild(row);
+    });
+    transcriptList.appendChild(fragment);
+    if (shouldFollow) transcriptList.scrollTop = transcriptList.scrollHeight;
+  }
+
+  function transcriptItemChars(item) {
+    return String(item.content || '').length + (item.attachments || []).join('').length + 24;
+  }
+
+  function trimTranscriptBuffer() {
+    if (currentTranscript.length > maxTranscriptItems) currentTranscript.splice(0, currentTranscript.length - maxTranscriptItems);
+    var totalChars = currentTranscript.reduce(function (total, item) { return total + transcriptItemChars(item); }, 0);
+    while (totalChars > maxTranscriptChars && currentTranscript.length > 1) {
+      totalChars -= transcriptItemChars(currentTranscript.shift());
+    }
+  }
+
+  function recordTranscript(role, content, attachments) {
+    var clean = clampText(content, maxTranscriptItemChars);
+    if (!clean && !(attachments && attachments.length)) return;
+    var names = (attachments || []).map(function (name) { return String(name || '').trim(); }).filter(Boolean).slice(0, 6);
+    var next = { role: role, content: clean || '发送了一张图片', attachments: names, ts: Date.now() };
+    var last = currentTranscript[currentTranscript.length - 1];
+    if (last && last.role === role && JSON.stringify(last.attachments || []) === JSON.stringify(names) && next.ts - Number(last.ts || 0) < 90000) {
+      var previous = String(last.content || '');
+      if (previous === next.content || next.content.indexOf(previous) === 0 || previous.indexOf(next.content) === 0) {
+        last.content = next.content.length >= previous.length ? next.content : previous;
+        last.ts = next.ts;
+        renderTranscript();
+        return;
+      }
+    }
+    currentTranscript.push(next);
+    trimTranscriptBuffer();
+    renderTranscript();
+  }
+
+  function resetCurrentTranscript() {
+    currentTranscript = [];
+    renderTranscript();
+  }
+
+  function exportTranscript() {
+    if (!currentTranscript.length) { toast('暂无可导出的字幕'); return; }
+    var rows = currentTranscript.map(function (item) {
+      var role = item.role === 'assistant' ? 'AI' : '你';
+      var attachments = (item.attachments || []).length ? ' [附图：' + item.attachments.join('、') + ']' : '';
+      return '[' + formatTranscriptTime(item.ts) + '] ' + role + '：' + item.content + attachments;
+    });
+    var blob = new Blob([rows.join('\n\n') + '\n'], { type: 'text/plain;charset=utf-8' });
+    var link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'voice-transcript-' + new Date().toISOString().replace(/[:.]/g, '-') + '.txt';
+    link.click();
+    setTimeout(function () { URL.revokeObjectURL(link.href); }, 0);
+  }
+
+  function currentAutoInterruptProfile() {
+    var selected = interruptSensitivity ? interruptSensitivity.value : 'balanced';
+    return autoInterruptProfiles[selected] || autoInterruptProfiles.balanced;
+  }
+
+  function updateTranscriptMeta() {
+    if (!transcriptMeta) return;
+    var profile = currentAutoInterruptProfile();
+    var suffix = autoInterruptCalibrationEndsAt ? ' · 环境校准中' : '';
+    transcriptMeta.textContent = '本次通话 · ' + profile.label + '打断' + suffix + ' · 最多 120 条';
+  }
+
+  function beginAutoInterruptCalibration() {
+    var profile = currentAutoInterruptProfile();
+    currentAutoInterruptRms = profile.rms;
+    currentAutoInterruptHoldMs = profile.holdMs;
+    autoInterruptCalibrationSamples = [];
+    autoInterruptAmbientRms = 0;
+    autoInterruptCalibrationEndsAt = inCall ? Date.now() + 2400 : 0;
+    updateTranscriptMeta();
+  }
+
+  function observeAutoInterruptCalibration(rms) {
+    if (!inCall || muted || assistantSpeaking || !autoInterruptCalibrationEndsAt) return;
+    var now = Date.now();
+    if (now < autoInterruptCalibrationEndsAt) {
+      if (rms >= 0 && rms < 0.55) autoInterruptCalibrationSamples.push(rms);
+      return;
+    }
+    var profile = currentAutoInterruptProfile();
+    var samples = autoInterruptCalibrationSamples.slice().sort(function (a, b) { return a - b; });
+    if (samples.length) autoInterruptAmbientRms = samples[Math.floor((samples.length - 1) * 0.2)];
+    currentAutoInterruptRms = Math.min(0.48, Math.max(profile.rms, autoInterruptAmbientRms + 0.10));
+    currentAutoInterruptHoldMs = profile.holdMs;
+    autoInterruptCalibrationEndsAt = 0;
+    updateTranscriptMeta();
+  }
+
+  function rememberLocalMessage(role, content, attachments) {
+    var clean = clampText(content, 1600);
+    if (!clean && !(attachments && attachments.length)) return;
+    var items = loadCurrentSessionHistory();
+    var now = Date.now();
+    var cleanAttachments = (attachments || []).map(function (name) { return String(name || '').trim(); }).filter(Boolean).slice(0, 6);
+    var last = items[items.length - 1];
+    if (last && last.role === role && !(last.attachments || []).length && !cleanAttachments.length && now - Number(last.ts || 0) < 45000) {
+      var previous = String(last.content || '');
+      if (previous === clean || clean.indexOf(previous) === 0 || previous.indexOf(clean) === 0) {
+        last.content = clean.length >= previous.length ? clean : previous;
+        last.ts = now;
+        saveCurrentSessionHistory(items);
+        recordTranscript(role, last.content, last.attachments || []);
+        return;
+      }
+    }
+    items.push({
+      role: role,
+      content: clean || '发送了一张图片',
+      attachments: cleanAttachments,
+      ts: now
+    });
+    saveCurrentSessionHistory(items);
+    recordTranscript(role, clean || '发送了一张图片', cleanAttachments);
+  }
+
+  function rememberAssistantText(text) {
+    var clean = clampText(text, 2000);
+    if (!clean || clean.charAt(0) === '（') return;
+    if (Date.now() < suppressPreviewAssistantUntil && clean.replace(/[，。！？!?\s]/g, '') === '你好') return;
+    var now = Date.now();
+    var items = loadCurrentSessionHistory();
+    var last = items[items.length - 1];
+    if (last && last.role === 'assistant' && now - lastAssistantHistoryAt < 90000) {
+      last.content = clean;
+      last.ts = now;
+    } else {
+      items.push({ role: 'assistant', content: clean, attachments: [], ts: now });
+    }
+    lastAssistantHistoryAt = now;
+    saveCurrentSessionHistory(items);
+    recordTranscript('assistant', clean, []);
+  }
+
+  function buildCurrentSessionContext() {
+    var lines = loadCurrentSessionHistory().slice(-maxLocalHistoryItems).map(function (item) {
+      var role = item.role === 'assistant' ? '助手' : '用户';
+      var attachments = (item.attachments || []).map(function (name) { return '附图：' + name; }).join('；');
+      return role + '：' + clampText(item.content, 1200) + (attachments ? '（' + attachments + '）' : '');
+    });
+    if (!lines.length) return '';
+    return clampText('以下是当前语音对话内的历史背景，仅用于理解当前问题，不需要对此单独回答：\n' + lines.join('\n'), maxLocalContextChars);
+  }
+
+  function withCurrentSessionContext(text, hasImage) {
+    var context = buildCurrentSessionContext();
+    if (!context) return text;
+    var current = String(text || '').trim() || (hasImage ? '用户发送了一张图片。' : '');
+    return context + '\n\n当前用户消息：\n' + current;
+  }
+
+  function normalizeVoice(value) {
+    var clean = String(value || '').trim().toLowerCase();
+    clean = chatgptVoiceAliases[clean] || clean;
+    return chatgptVoiceOptions.indexOf(clean) >= 0 ? clean : 'cove';
+  }
+
+  function voiceLabel(value) {
+    var meta = chatgptVoiceMeta[normalizeVoice(value)] || chatgptVoiceMeta.cove;
+    return meta.name + ' - ' + meta.description;
+  }
+
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    setTimeout(function () { toastEl.classList.remove('show'); }, 2200);
+  }
+
+  function log() {
+    return;
+  }
+
+  function setUI(state, title, sub) {
+    orb.className = 'orb ' + (state || 'idle');
+    statusText.textContent = title || '';
+    subText.textContent = sub || '';
+    if (inCall) {
+      btnMain.textContent = '结束';
+      btnMain.classList.add('stop');
+      btnMute.disabled = false;
+      btnSpeaker.disabled = false;
+    } else {
+      btnMain.textContent = '开始';
+      btnMain.classList.remove('stop');
+      btnMute.disabled = true;
+      btnSpeaker.disabled = true;
+    }
+    updateComposerState();
+  }
+
+  function updateComposerState() {
+    // 官方语音会话中，正文通过 DataChannel relay_message 提交。
+    var ready = inCall && !sending;
+    textInput.disabled = !inCall || sending;
+    btnSend.disabled = !ready;
+    btnFile.disabled = !ready;
+    if (!inCall) {
+      composerHint.textContent = '开始通话后可发送文本和图片';
+    } else if (sending) {
+      composerHint.textContent = '提交中…';
+    } else if (pendingImageFile) {
+      composerHint.textContent = '图片已添加，可继续输入文字后一起发送';
+    } else if (conversationId) {
+      composerHint.textContent = '语音会话已连接，可发送文本和图片';
+    } else {
+      composerHint.textContent = '语音已连接 · 等待 conversation_id';
+    }
+  }
+
+  function setPendingImage(file) {
+    pendingImageFile = file || null;
+    if (pendingImageFile) {
+      pendingFileName.textContent = pendingImageFile.name || 'image.png';
+      pendingFile.classList.add('show');
+      toast('图片已添加，输入文字后点发送');
+    } else {
+      pendingFileName.textContent = '';
+      pendingFile.classList.remove('show');
+    }
+    updateComposerState();
+  }
+
+  function clearPendingImage() {
+    setPendingImage(null);
+  }
+
+  function sendDcEventTo(channel, eventObj) {
+    if (!channel || channel.readyState !== 'open') {
+      throw new Error('实时数据通道尚未就绪');
+    }
+    // 官方 transceiver：外层必须包 data_message
+    channel.send(JSON.stringify({
+      type: 'data_message',
+      data: JSON.stringify(eventObj)
+    }));
+  }
+
+  function sendDcEvent(eventObj) {
+    sendDcEventTo(dcChannel, eventObj);
+  }
+
+  function suppressRemotePlayback() {
+    playbackSuppressed = true;
+    try { remoteAudio.pause(); } catch (e) {}
+    remoteAudio.muted = true;
+  }
+
+  function restoreRemotePlayback() {
+    if (!playbackSuppressed) return;
+    playbackSuppressed = false;
+    remoteAudio.muted = false;
+    ensureRemotePlay();
+  }
+
+  function markAssistantSpeaking() {
+    if (!inCall || awaitingInterruptAck) return;
+    assistantSpeaking = true;
+    restoreRemotePlayback();
+  }
+
+  function markAssistantListening() {
+    assistantSpeaking = false;
+    autoInterruptStartedAt = 0;
+    if (awaitingInterruptAck) awaitingInterruptAck = false;
+  }
+
+  function interruptAssistant() {
+    if (!inCall || muted || !assistantSpeaking || awaitingInterruptAck || !dcChannel || dcChannel.readyState !== 'open') return false;
+    awaitingInterruptAck = true;
+    assistantSpeaking = false;
+    autoInterruptStartedAt = 0;
+    autoInterruptCooldownUntil = Date.now() + AUTO_INTERRUPT_COOLDOWN_MS;
+    remoteSpeakingUntil = 0;
+    suppressRemotePlayback();
+    setUI('listening', '聆听中', '已打断回答，请继续说话');
+    try {
+      sendDcEvent({ type: 'action_request', payload: { action: 'stop_speaking' } });
+      log('auto interrupt', 'stop_speaking');
+      return true;
+    } catch (e) {
+      awaitingInterruptAck = false;
+      restoreRemotePlayback();
+      throw e;
+    }
+  }
+
+  function evaluateAutoInterrupt(rms) {
+    observeAutoInterruptCalibration(rms);
+    if (!inCall || muted || !assistantSpeaking || awaitingInterruptAck || Date.now() < autoInterruptCooldownUntil || rms < currentAutoInterruptRms) {
+      autoInterruptStartedAt = 0;
+      return;
+    }
+    if (!autoInterruptStartedAt) {
+      autoInterruptStartedAt = Date.now();
+      return;
+    }
+    if (Date.now() - autoInterruptStartedAt < currentAutoInterruptHoldMs) return;
+    autoInterruptStartedAt = 0;
+    try { interruptAssistant(); } catch (e) { log('auto interrupt fail', String(e)); }
+  }
+
+  function newUuid() {
+    if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      var r = Math.random() * 16 | 0;
+      var v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+
+  function sendRelayMessageTo(channel, message) {
+    sendDcEventTo(channel, {
+      type: 'relay_message',
+      payload: {
+        type: 'relay_message',
+        message: message
+      }
+    });
+  }
+
+  function sendRelayMessage(message) {
+    sendRelayMessageTo(dcChannel, message);
+  }
+
+  function extractTextParts(parts) {
+    if (!Array.isArray(parts)) return '';
+    return parts.map(function (part) {
+      if (typeof part === 'string') return part;
+      if (!part || typeof part !== 'object') return '';
+      if (typeof part.text === 'string') return part.text;
+      if (typeof part.content === 'string') return part.content;
+      if (part.content && typeof part.content.text === 'string') return part.content.text;
+      if (typeof part.transcript === 'string') return part.transcript;
+      return '';
+    }).filter(Boolean).join('\n').trim();
+  }
+
+  function extractTranscriptText(obj, payload) {
+    var source = payload || obj || {};
+    var candidates = [
+      obj && obj.transcript,
+      obj && obj.text,
+      obj && obj.delta,
+      source && source.transcript,
+      source && source.text,
+      source && source.delta,
+      source && source.item && source.item.transcript,
+      source && source.item && source.item.content && extractTextParts(source.item.content.parts),
+      source && source.message && source.message.content && extractTextParts(source.message.content.parts)
+    ];
+    for (var i = 0; i < candidates.length; i++) {
+      if (typeof candidates[i] === 'string' && candidates[i].trim()) return candidates[i].trim();
+    }
+    return '';
+  }
+
+  function rememberDcText(role, text) {
+    var clean = clampText(text, role === 'assistant' ? 2000 : 1600);
+    if (!clean) return;
+    if (role === 'user') rememberLocalMessage('user', clean, []);
+    if (role === 'assistant') showReply(clean);
+  }
+
+  function sendVoicePreviewGreeting() {
+    if (!pendingVoicePreview || !inCall || !dcChannel || dcChannel.readyState !== 'open') return;
+    try {
+      var message = buildBaseUserMessage({
+        content_type: 'text',
+        parts: ['请只用当前语音说：你好。不要添加其他内容。']
+      });
+      message.metadata.system_hints = { voice_preview: true };
+      sendRelayMessage(message);
+      parentMessageId = message.id;
+      pendingVoicePreview = false;
+      suppressPreviewAssistantUntil = Date.now() + 12000;
+      showReply('（正在试听当前音色：你好）', false);
+      toast('正在试听 ' + voiceLabel(voiceEl.value));
+    } catch (e) {
+      log('voice preview fail', String(e));
+    }
+  }
+
+  async function warmMicPermission() {
+    if (micPermissionWarmed) return true;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
+    try {
+      var stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      stream.getTracks().forEach(function (track) { track.stop(); });
+      micPermissionWarmed = true;
+      await refreshMics();
+      return true;
+    } catch (e) {
+      log('warm mic permission fail', String(e));
+      return false;
+    }
+  }
+
+  async function stopVoicePreviewOnly() {
+    if (previewTimer) clearTimeout(previewTimer);
+    previewTimer = 0;
+    if (previewPc) {
+      try { previewPc.close(); } catch (e) {}
+      previewPc = null;
+    }
+    if (previewAudio) {
+      try { previewAudio.pause(); } catch (e) {}
+      previewAudio.srcObject = null;
+    }
+    if (previewMicStream) {
+      previewMicStream.getTracks().forEach(function (track) { track.stop(); });
+      previewMicStream = null;
+    }
+    previewStarting = false;
+  }
+
+  async function playPreviewAudio() {
+    if (!previewAudio || !previewAudio.srcObject) return;
+    try {
+      previewAudio.muted = false;
+      previewAudio.volume = 1;
+      var p = previewAudio.play();
+      if (p && p.then) await p;
+    } catch (e) {
+      toast('如果没有声音，请点一次页面后再切换音色试听');
+    }
+  }
+
+  async function startVoicePreviewOnly(voice) {
+    if (previewStarting) return;
+    previewStarting = true;
+    var token = getToken();
+    if (!token && !isManagedVoiceHost) {
+      document.querySelector('.advanced') && (document.querySelector('.advanced').open = true);
+      toast('请先在高级设置填写登录密钥');
+      previewStarting = false;
+      return;
+    }
+    try {
+      await stopVoicePreviewOnly();
+      await warmMicPermission();
+      previewStarting = true;
+      var pcLocal = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun4.l.google.com:19302' }
+        ],
+        bundlePolicy: 'max-bundle'
+      });
+      previewPc = pcLocal;
+      var deviceId = micSelect.value;
+      var constraints = deviceId
+        ? { video: false, audio: { deviceId: { exact: deviceId }, echoCancellation: true, noiseSuppression: true } }
+        : { video: false, audio: true };
+      try {
+        previewMicStream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (e) {
+        previewMicStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      }
+      previewMicStream.getTracks().forEach(function (track) { pcLocal.addTrack(track, previewMicStream); });
+      if (!previewAudio) {
+        previewAudio = document.createElement('audio');
+        previewAudio.autoplay = true;
+        previewAudio.playsInline = true;
+        previewAudio.style.display = 'none';
+        document.body.appendChild(previewAudio);
+      }
+      var sent = false;
+      var previewDc = pcLocal.createDataChannel('oai-events', { negotiated: true, id: 0 });
+      function sendPreviewIfReady() {
+        if (sent || previewDc.readyState !== 'open' || !pcLocal.remoteDescription) return;
+        var message = buildBaseUserMessage({
+          content_type: 'text',
+          parts: ['请只用当前语音说：你好。不要添加其他内容。']
+        });
+        message.metadata = Object.assign({}, message.metadata, { previewOnly: true });
+        sendRelayMessageTo(previewDc, message);
+        sent = true;
+        suppressPreviewAssistantUntil = Date.now() + 12000;
+        toast('正在试听 ' + voiceLabel(voice));
+        setTimeout(function () {
+          if (previewPc === pcLocal && (!previewAudio || !previewAudio.srcObject)) toast('已发送试听请求，但还没有收到上游音频');
+        }, 4500);
+        previewTimer = setTimeout(stopVoicePreviewOnly, 9000);
+      }
+      previewDc.onopen = sendPreviewIfReady;
+      previewDc.onmessage = function () {};
+      pcLocal.ontrack = function (ev) {
+        var stream = ev.streams && ev.streams[0] ? ev.streams[0] : new MediaStream([ev.track]);
+        previewAudio.srcObject = stream;
+        playPreviewAudio();
+      };
+      var offer = await pcLocal.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
+      await pcLocal.setLocalDescription(offer);
+      await new Promise(function (resolve) {
+        if (pcLocal.iceGatheringState === 'complete') return resolve();
+        var timer = setTimeout(resolve, 2500);
+        pcLocal.onicegatheringstatechange = function () {
+          if (pcLocal.iceGatheringState === 'complete') { clearTimeout(timer); resolve(); }
+        };
+      });
+      var resp = await fetch('/api/voice/session', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...authHeaders(token)
+        },
+        body: JSON.stringify({
+          offer_sdp: pcLocal.localDescription.sdp,
+          voice: normalizeVoice(voice),
+          voice_mode: 'wingman'
+        })
+      });
+      var data = {};
+      try { data = await resp.json(); } catch (e) {}
+      if (!resp.ok) {
+        var msg = (data && data.detail && (data.detail.error || JSON.stringify(data.detail))) || ('HTTP ' + resp.status);
+        throw new Error(msg);
+      }
+      await pcLocal.setRemoteDescription({ type: 'answer', sdp: data.answer_sdp });
+      sendPreviewIfReady();
+    } catch (e) {
+      toast('试听失败：' + String(e.message || e));
+      await stopVoicePreviewOnly();
+    } finally {
+      previewStarting = false;
+    }
+  }
+
+  function buildBaseUserMessage(content) {
+    return {
+      id: newUuid(),
+      author: { role: 'user' },
+      create_time: Date.now() / 1000,
+      content: content,
+      metadata: {
+        serialization_metadata: {
+          custom_symbol_offsets: []
+        }
+      },
+      clientMetadata: {
+        isOptimistic: true
+      }
+    };
+  }
+
+  function dataUrlBytes(dataUrl) {
+    return Math.ceil((String(dataUrl || '').length * 3) / 4);
+  }
+
+  function fileToDataUrl(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () { resolve(String(reader.result || '')); };
+      reader.onerror = function () { reject(new Error('读取图片失败')); };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function compressRealtimeImage(source, maxBytes) {
+    if (dataUrlBytes(source) <= maxBytes) return source;
+    var image = await new Promise(function (resolve, reject) {
+      var img = new Image();
+      img.onload = function () { resolve(img); };
+      img.onerror = function () { reject(new Error('图片无法用于语音对话')); };
+      img.src = source;
+    });
+    var initialEdge = Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height);
+    var edge = Math.min(initialEdge, 1280);
+    var quality = 0.82;
+    for (var attempt = 0; attempt < 7; attempt++) {
+      var scale = Math.min(1, edge / initialEdge);
+      var canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
+      canvas.height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
+      var ctx = canvas.getContext('2d');
+      if (!ctx) break;
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+      var output = canvas.toDataURL('image/jpeg', quality);
+      if (dataUrlBytes(output) <= maxBytes) return output;
+      edge = Math.max(320, Math.round(edge * 0.72));
+      quality = Math.max(0.46, quality - 0.1);
+    }
+    throw new Error('图片过大，无法压缩到实时通话可发送的大小');
+  }
+
+  function showReply(text, remember) {
+    if (!text) return;
+    if (remember !== false) rememberAssistantText(text);
+  }
+
+  function unwrapDc(obj) {
+    // data_message wrapper: {type:'data_message', data:'{...}'}
+    if (obj && obj.type === 'data_message' && typeof obj.data === 'string') {
+      try { return JSON.parse(obj.data); } catch (e) { return obj; }
+    }
+    return obj;
+  }
+
+  function handleDcPayload(payload) {
+    var obj = unwrapDc(payload);
+    if (!obj || typeof obj !== 'object') return;
+    var t = String(obj.type || '');
+    var p = obj.payload || obj;
+
+    if (t === 'startup_telemetry' || (p && p.type === 'startup_telemetry')) {
+      var st = (p && p.type === 'startup_telemetry') ? p : obj;
+      if (st.conversation_id) {
+        conversationId = st.conversation_id;
+        log('conversation_id', conversationId);
+      }
+      updateComposerState();
+    }
+    if (t === 'conversation_update' || (p && p.type === 'conversation_update')) {
+      var cu = (p && p.type === 'conversation_update') ? p : obj;
+      if (cu.conversation_id) conversationId = cu.conversation_id;
+      if (cu.parent_message_id) parentMessageId = cu.parent_message_id;
+      log('conversation_update', conversationId, parentMessageId);
+      updateComposerState();
+    }
+    // 语音内旁路：user/assistant 的 chat_message_delta
+    if (t === 'chat_message_delta' || (p && p.type === 'chat_message_delta')) {
+      var d = (p && p.type === 'chat_message_delta') ? p : obj;
+      var delta = d.delta || (d.payload && d.payload.delta) || {};
+      if (delta && delta.v && delta.v.message) {
+        var msg = delta.v.message;
+        var role = (msg.author && msg.author.role) || '';
+        if (msg.id && (role === 'assistant' || role === 'user')) parentMessageId = msg.id;
+        if (role === 'assistant' && msg.id && msg.id !== streamingAssistantMessageId) {
+          streamingAssistantMessageId = msg.id;
+          streamingAssistantText = '';
+        }
+        var content = msg.content || {};
+        var text = extractTextParts(content.parts || []);
+        if (role === 'assistant' || role === 'user') rememberDcText(role, text);
+      }
+      if (delta && Array.isArray(delta.v)) {
+        for (var i = 0; i < delta.v.length; i++) {
+          var op = delta.v[i];
+          if (op && op.o === 'append' && String(op.p || '').indexOf('/text') >= 0) {
+            streamingAssistantText += String(op.v || '');
+            showReply(streamingAssistantText);
+          }
+        }
+      }
+      updateComposerState();
+    }
+    // Realtime 风格 transcript 事件（若有），用于刷新后恢复本地上下文。
+    if (t.indexOf('input_audio') >= 0 && t.indexOf('transcription') >= 0) {
+      rememberDcText('user', extractTranscriptText(obj, p));
+    } else if (t.indexOf('audio_transcript') >= 0 || t.indexOf('response.audio_transcript') >= 0) {
+      rememberDcText('assistant', extractTranscriptText(obj, p));
+    }
+  }
+
+  function getToken() {
+    return (tokenEl.value || '').trim();
+  }
+
+  function authHeaders(token) {
+    return token ? { 'authorization': 'Bearer ' + token } : {};
+  }
+
+  async function releaseBackendVoiceSession() {
+    var sessionId = voiceSessionId;
+    if (!sessionId) return;
+    voiceSessionId = '';
+    try {
+      var token = getToken();
+      await fetch('/api/voice/session/release', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...authHeaders(token)
+        },
+        body: JSON.stringify({ voice_session_id: sessionId }),
+        keepalive: true
+      });
+    } catch (e) {}
+  }
+
+  async function sendTextMessage() {
+    if (sending || !inCall) return;
+    var text = (textInput.value || '').trim();
+    if (pendingImageFile) {
+      await sendImageMessage(pendingImageFile);
+      return;
+    }
+    if (!text && !pendingImageFile) { toast('请输入文本或添加图片'); return; }
+    sending = true;
+    updateComposerState();
+    setUI('speaking', '正在处理', 'DataChannel 提交到当前语音会话…');
+    try {
+      var message = buildBaseUserMessage({
+        content_type: 'text',
+        parts: [withCurrentSessionContext(text, false)]
+      });
+      sendRelayMessage(message);
+      parentMessageId = message.id;
+      textInput.value = '';
+      clearPendingImage();
+      rememberLocalMessage('user', text, []);
+      showReply('（文本已通过实时通道发送）', false);
+      toast('文本已发送到语音会话');
+      log('dc relay text ok', message.id, text.slice(0, 120));
+      setUI('listening', '聆听中', '文本已进入当前实时会话');
+    } catch (e) {
+      toast(String(e.message || e));
+      log('send text error', String(e));
+      setUI('error', '发送失败', String(e.message || e));
+    } finally {
+      sending = false;
+      updateComposerState();
+    }
+  }
+
+  async function sendImageMessage(file) {
+    if (sending || !inCall || !file) return;
+    var token = getToken();
+    if (!token && !isManagedVoiceHost) { toast('请填写登录密钥'); return; }
+    sending = true;
+    updateComposerState();
+    setUI('speaking', '正在处理', '上传图片并通过实时通道提交…');
+    try {
+      var fd = new FormData();
+      fd.append('image', file, file.name || 'image.png');
+      fd.append('voice_session_id', voiceSessionId);
+      var resp = await fetch('/api/voice/upload-image', {
+        method: 'POST',
+        headers: authHeaders(token),
+        body: fd
+      });
+      var data = {};
+      try { data = await resp.json(); } catch (e) {}
+      if (!resp.ok) {
+        var msg = (data && data.detail && (data.detail.error || JSON.stringify(data.detail))) || ('HTTP ' + resp.status);
+        toast(msg);
+        log('http send image fail', msg, data);
+        setUI('listening', '聆听中', '图片发送失败，可重试');
+        return;
+      }
+      var text = (textInput.value || '').trim();
+      var parts = [{
+        content_type: 'image_asset_pointer',
+        asset_pointer: 'sediment://' + data.file_id,
+        size_bytes: Number(data.size || 0),
+        width: Number(data.width || 0),
+        height: Number(data.height || 0)
+      }];
+      var messageText = withCurrentSessionContext(text, true);
+      if (messageText) parts.push(messageText);
+      var attachment = {
+        id: data.file_id,
+        size: Number(data.size || 0),
+        name: data.name || file.name || 'image.png',
+        mimeType: data.mimeType || file.type || 'image/png',
+        width: Number(data.width || 0),
+        height: Number(data.height || 0)
+      };
+      var message = buildBaseUserMessage({
+        content_type: 'multimodal_text',
+        parts: parts
+      });
+      message.metadata.attachments = [attachment];
+      sendRelayMessage(message);
+      parentMessageId = message.id;
+      textInput.value = '';
+      clearPendingImage();
+      rememberLocalMessage('user', text || '发送了一张图片', [attachment.name]);
+      showReply('（图片已通过实时通道发送）\nfile: ' + data.file_id, false);
+      toast('图片已发送到语音会话');
+      log('dc relay image ok', data.file_id, message.id);
+      setUI('listening', '聆听中', '图片已进入当前实时会话');
+    } catch (e) {
+      toast(String(e.message || e));
+      log('send image error', String(e));
+      setUI('error', '发送失败', String(e.message || e));
+    } finally {
+      sending = false;
+      updateComposerState();
+    }
+  }
+
+  function isVirtualMic(label) {
+    return /todesk|virtual|cable|stereo mix|vb-audio|voicemeeter|blackhole/i.test(label || '');
+  }
+  function scoreMic(label) {
+    label = label || '';
+    if (isVirtualMic(label)) return -100;
+    var s = 10;
+    if (/ugreen|usb|headset|realtek|麦克风|microphone|array/i.test(label)) s += 20;
+    if (/默认|default|通信|communication/i.test(label)) s += 5;
+    return s;
+  }
+
+  async function refreshMics() {
+    try {
+      var devices = await navigator.mediaDevices.enumerateDevices();
+      var inputs = devices.filter(function (d) { return d.kind === 'audioinput'; });
+      var prev = micSelect.value;
+      micSelect.innerHTML = '';
+      var bestId = '', best = -999;
+      inputs.forEach(function (d, i) {
+        var opt = document.createElement('option');
+        opt.value = d.deviceId;
+        var label = d.label || ('麦克风 ' + (i + 1));
+        opt.textContent = isVirtualMic(label) ? (label + '（不推荐）') : label;
+        micSelect.appendChild(opt);
+        var sc = scoreMic(label);
+        if (sc > best) { best = sc; bestId = d.deviceId; }
+      });
+      if (!inputs.length) {
+        var o = document.createElement('option');
+        o.value = ''; o.textContent = '未找到麦克风';
+        micSelect.appendChild(o);
+      } else if (prev) {
+        micSelect.value = prev;
+      } else if (bestId) {
+        micSelect.value = bestId;
+      }
+      log('mics', inputs.map(function (d) { return d.label; }), 'selected', micSelect.options[micSelect.selectedIndex] && micSelect.options[micSelect.selectedIndex].textContent);
+    } catch (e) {
+      log('refreshMics fail', String(e));
+    }
+  }
+
+  async function ensureCtx() {
+    if (!audioCtx) {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) audioCtx = new AC();
+    }
+    if (audioCtx && audioCtx.state === 'suspended') await audioCtx.resume();
+  }
+
+  function startMeter(stream, which) {
+    try {
+      if (!stream) return;
+      ensureCtx();
+      if (!audioCtx) return;
+      var source = audioCtx.createMediaStreamSource(stream);
+      var analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 512;
+      source.connect(analyser);
+      var data = new Uint8Array(analyser.frequencyBinCount);
+      function tick() {
+        analyser.getByteTimeDomainData(data);
+        var sum = 0;
+        for (var i = 0; i < data.length; i++) {
+          var v = (data[i] - 128) / 128;
+          sum += v * v;
+        }
+        var rms = Math.min(1, Math.sqrt(sum / data.length) * 4);
+        if (which === 'local') {
+          localLevelEl.value = rms;
+          evaluateAutoInterrupt(rms);
+          localRaf = requestAnimationFrame(tick);
+        } else {
+          remoteLevelEl.value = rms;
+          // Hold remote speaking state through short pauses in the assistant audio.
+          if (inCall && !playbackSuppressed && rms > 0.08) {
+            remoteSpeakingUntil = Date.now() + 900;
+            markAssistantSpeaking();
+            if (statusText.textContent !== '回答中') setUI('speaking', '回答中', '正在说话');
+          } else if (inCall && statusText.textContent === '回答中' && Date.now() > remoteSpeakingUntil) {
+            markAssistantListening();
+            setUI('listening', '聆听中', '请继续说');
+          }
+          remoteRaf = requestAnimationFrame(tick);
+        }
+      }
+      if (which === 'local') {
+        if (localRaf) cancelAnimationFrame(localRaf);
+        if (localSource) try { localSource.disconnect(); } catch (e) {}
+        localSource = source; localAnalyser = analyser; tick();
+      } else {
+        if (remoteRaf) cancelAnimationFrame(remoteRaf);
+        if (remoteSource) try { remoteSource.disconnect(); } catch (e) {}
+        remoteSource = source; remoteAnalyser = analyser; tick();
+      }
+    } catch (e) {
+      log('meter fail', String(e));
+    }
+  }
+
+  async function requestMic() {
+    if (!window.isSecureContext) throw new Error('请使用 HTTPS 打开此页面');
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('浏览器不支持麦克风');
+    await refreshMics();
+    var deviceId = micSelect.value;
+    var constraints = deviceId
+      ? { video: false, audio: { deviceId: { exact: deviceId }, echoCancellation: true, noiseSuppression: true } }
+      : { video: false, audio: true };
+    var stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (e) {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    }
+    var label = (stream.getAudioTracks()[0] && stream.getAudioTracks()[0].label) || '';
+    if (isVirtualMic(label)) {
+      toast('当前是虚拟麦克风，可能无法被识别，请换成真实麦克风');
+    }
+    startMeter(stream, 'local');
+    await refreshMics();
+    return stream;
+  }
+
+  async function ensureRemotePlay(force) {
+    try {
+      await ensureCtx();
+      if (!remoteAudio.srcObject) return;
+      if (playbackSuppressed && !force) return;
+      remoteAudio.muted = false;
+      remoteAudio.volume = 1;
+      var p = remoteAudio.play();
+      if (p && p.then) await p;
+      log('remote playing', !remoteAudio.paused);
+    } catch (e) {
+      log('play fail', String(e));
+      toast('点击扬声器按钮解锁声音');
+    }
+  }
+
+  async function startCall() {
+    if (starting || inCall) return;
+    starting = true;
+    try {
+      await stopVoicePreviewOnly();
+      var token = (tokenEl.value || '').trim();
+      if (!token && !isManagedVoiceHost) {
+        // open advanced settings visually
+        document.querySelector('.advanced') && (document.querySelector('.advanced').open = true);
+        toast('请先在高级设置填写登录密钥');
+        tokenEl.focus();
+        return;
+      }
+      if (token) {
+        try { localStorage.setItem(tokenStorageKey, token); } catch (e) {}
+      }
+
+      setUI('connecting', '连接中', '正在开启麦克风');
+      await stopCall(false);
+      resetCurrentSessionHistory();
+      resetCurrentTranscript();
+      updateTranscriptMeta();
+
+      localStream = await requestMic();
+      setUI('connecting', '连接中', '正在建立通话');
+
+      pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun4.l.google.com:19302' }
+        ],
+        bundlePolicy: 'max-bundle'
+      });
+
+      try {
+        var dc = pc.createDataChannel('oai-events', { negotiated: true, id: 0 });
+        dcChannel = dc;
+        dc.onopen = function () {
+          log('dc open');
+          updateComposerState();
+          setTimeout(sendVoicePreviewGreeting, 700);
+        };
+        dc.onclose = function () {
+          log('dc close');
+          if (dcChannel === dc) dcChannel = null;
+          updateComposerState();
+        };
+        dc.onerror = function (e) { log('dc error', e); };
+        dc.onmessage = function (ev) {
+          try {
+            var obj = JSON.parse(ev.data);
+            var inner = obj;
+            if (obj.type === 'data_message' && typeof obj.data === 'string') inner = JSON.parse(obj.data);
+            var t = inner.type || obj.type;
+            log('dc', t, inner);
+            if (t === 'state_update') {
+              var st = (inner.payload && inner.payload.new_state) || '';
+              if (st === 'listening') {
+                markAssistantListening();
+                setUI('listening', '聆听中', '我在听，请说话');
+              }
+              if (st === 'speaking' || st === 'responding') {
+                markAssistantSpeaking();
+                setUI('speaking', '回答中', '正在回复');
+              }
+              if (st === 'idle') {
+                markAssistantListening();
+                setUI('listening', '聆听中', '请继续说');
+              }
+            }
+            handleDcPayload(obj);
+          } catch (e) {
+            log('dc raw', ev.data);
+          }
+        };
+      } catch (e) { log('dc fail', String(e)); }
+
+      localStream.getTracks().forEach(function (t) { pc.addTrack(t, localStream); });
+
+      pc.ontrack = function (ev) {
+        log('ontrack', ev.track.kind, 'muted=', ev.track.muted);
+        if (ev.streams && ev.streams[0]) remoteStream = ev.streams[0];
+        else {
+          if (!remoteStream) remoteStream = new MediaStream();
+          remoteStream.addTrack(ev.track);
+        }
+        remoteAudio.srcObject = remoteStream;
+        ensureRemotePlay();
+        startMeter(remoteStream, 'remote');
+      };
+      pc.oniceconnectionstatechange = function () {
+        log('ice', pc.iceConnectionState);
+        if (pc.iceConnectionState === 'failed') {
+          setUI('error', '连接失败', '网络或代理异常');
+          toast('连接失败');
+        }
+      };
+      pc.onconnectionstatechange = function () {
+        log('conn', pc.connectionState);
+        if (pc.connectionState === 'connected') {
+          inCall = true;
+          beginAutoInterruptCalibration();
+          setUI('listening', '聆听中', '已连接，请开始说话');
+          setTimeout(sendVoicePreviewGreeting, 700);
+        }
+        if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+          if (inCall) setUI('error', '已断开', '通话结束');
+        }
+      };
+
+      var offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
+      await pc.setLocalDescription(offer);
+      await new Promise(function (resolve) {
+        if (pc.iceGatheringState === 'complete') return resolve();
+        var t = setTimeout(resolve, 2500);
+        pc.onicegatheringstatechange = function () {
+          if (pc.iceGatheringState === 'complete') { clearTimeout(t); resolve(); }
+        };
+      });
+
+      var resp = await fetch('/api/voice/session', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...authHeaders(token)
+        },
+        body: JSON.stringify({
+          offer_sdp: pc.localDescription.sdp,
+          voice: normalizeVoice(voiceEl.value),
+          voice_mode: (document.getElementById('voiceMode').value || 'wingman').trim(),
+          voice_session_id: voiceSessionId
+        })
+      });
+      var data = {};
+      try { data = await resp.json(); } catch (e) {}
+      if (!resp.ok) {
+        var msg = (data && data.detail && (data.detail.error || JSON.stringify(data.detail))) || ('HTTP ' + resp.status);
+        setUI('error', '无法开始', msg);
+        toast(msg);
+        await stopCall(false);
+        return;
+      }
+      voiceSessionId = data.voice_session_id || data.session_id || '';
+      log('session ok', data.account_email, data.proxy_source);
+      await pc.setRemoteDescription({ type: 'answer', sdp: data.answer_sdp });
+      inCall = true;
+      setUI('connecting', '连接中', '正在进入通话');
+      await ensureRemotePlay();
+      setTimeout(sendVoicePreviewGreeting, 700);
+    } catch (e) {
+      log('start error', String(e));
+      setUI('error', '无法开始', String(e.message || e));
+      toast(String(e.message || e));
+      await stopCall(false);
+    } finally {
+      starting = false;
+    }
+  }
+
+  async function stopCall(updateText) {
+    if (updateText === undefined) updateText = true;
+    clearInterval(0);
+    if (localRaf) cancelAnimationFrame(localRaf);
+    if (remoteRaf) cancelAnimationFrame(remoteRaf);
+    localRaf = 0; remoteRaf = 0;
+    try { if (dcChannel) dcChannel.close(); } catch (e) {}
+    dcChannel = null;
+    await stopVoicePreviewOnly();
+    if (pc) { try { pc.close(); } catch (e) {} pc = null; }
+    if (localStream) {
+      localStream.getTracks().forEach(function (t) { t.stop(); });
+      localStream = null;
+    }
+    remoteStream = null;
+    remoteAudio.srcObject = null;
+    localLevelEl.value = 0;
+    remoteLevelEl.value = 0;
+    inCall = false;
+    muted = false;
+    sending = false;
+    remoteSpeakingUntil = 0;
+    assistantSpeaking = false;
+    autoInterruptStartedAt = 0;
+    autoInterruptCooldownUntil = 0;
+    currentAutoInterruptRms = AUTO_INTERRUPT_RMS;
+    currentAutoInterruptHoldMs = AUTO_INTERRUPT_HOLD_MS;
+    autoInterruptCalibrationEndsAt = 0;
+    autoInterruptCalibrationSamples = [];
+    autoInterruptAmbientRms = 0;
+    awaitingInterruptAck = false;
+    playbackSuppressed = false;
+    conversationId = '';
+    parentMessageId = '';
+    streamingAssistantText = '';
+    streamingAssistantMessageId = '';
+    await releaseBackendVoiceSession();
+    clearPendingImage();
+    btnMute.textContent = '🎤';
+    if (updateText) setUI('idle', '准备就绪', '点击下方按钮开始');
+    updateTranscriptMeta();
+    updateComposerState();
+  }
+
+  function toggleMute() {
+    if (!localStream) return;
+    muted = !muted;
+    localStream.getAudioTracks().forEach(function (t) { t.enabled = !muted; });
+    btnMute.textContent = muted ? '🔇' : '🎤';
+    toast(muted ? '已静音' : '麦克风已开');
+  }
+
+  function bind() {
+    clearStoredConversationHistory();
+    btnMain.onclick = function () {
+      if (inCall || starting) stopCall(true);
+      else startCall();
+    };
+    btnMute.onclick = toggleMute;
+    btnSpeaker.onclick = function () { ensureRemotePlay(true); toast('已尝试解锁声音'); };
+    btnExportTranscript.onclick = exportTranscript;
+    btnClearTranscript.onclick = function () {
+      resetCurrentTranscript();
+      toast('已清空显示字幕');
+    };
+    interruptSensitivity.onchange = function () {
+      beginAutoInterruptCalibration();
+      toast(inCall ? '灵敏度已调整，正在重新校准环境声音' : '已调整自动打断灵敏度');
+    };
+    btnSend.onclick = sendTextMessage;
+    btnFile.onclick = function () { fileInput.click(); };
+    btnClearFile.onclick = clearPendingImage;
+    fileInput.onchange = function () {
+      var f = fileInput.files && fileInput.files[0];
+      fileInput.value = '';
+      if (f) setPendingImage(f);
+    };
+    textInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendTextMessage();
+      }
+    });
+    renderTranscript();
+    updateTranscriptMeta();
+    if (isManagedVoiceHost) {
+      tokenEl.value = '';
+      tokenEl.disabled = true;
+      tokenEl.placeholder = 'Gateway Auth Key';
+    } else {
+      var saved = '';
+      try { saved = localStorage.getItem(tokenStorageKey) || ''; } catch (e) {}
+      if (saved) tokenEl.value = saved;
+      tokenEl.onchange = function () {
+        try { localStorage.setItem(tokenStorageKey, (tokenEl.value || '').trim()); } catch (e) {}
+      };
+    }
+    try {
+      var savedVoice = normalizeVoice(localStorage.getItem(voiceStorageKey) || voiceEl.value);
+      voiceEl.value = savedVoice;
+    } catch (e) {
+      voiceEl.value = normalizeVoice(voiceEl.value);
+    }
+    voiceEl.onchange = function () {
+      voiceEl.value = normalizeVoice(voiceEl.value);
+      pendingVoicePreview = false;
+      try { localStorage.setItem(voiceStorageKey, voiceEl.value); } catch (e) {}
+      if (inCall) {
+        toast('正在独立试听，新音色下次正式语音生效');
+      } else {
+        toast('正在试听当前音色');
+      }
+      startVoicePreviewOnly(voiceEl.value);
+    };
+    setUI('idle', '准备就绪', '点击下方按钮开始');
+    updateComposerState();
+    if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+      navigator.mediaDevices.enumerateDevices().then(refreshMics).catch(function () {});
+    }
+    setTimeout(warmMicPermission, 600);
+  }
+
+  // expose for details label
+  async function refreshMics() {
+    try {
+      var devices = await navigator.mediaDevices.enumerateDevices();
+      var inputs = devices.filter(function (d) { return d.kind === 'audioinput'; });
+      var prev = micSelect.value;
+      micSelect.innerHTML = '';
+      var bestId = '', best = -999;
+      inputs.forEach(function (d, i) {
+        var opt = document.createElement('option');
+        opt.value = d.deviceId;
+        var label = d.label || ('麦克风 ' + (i + 1));
+        opt.textContent = isVirtualMic(label) ? (label + '（不推荐）') : label;
+        micSelect.appendChild(opt);
+        var sc = scoreMic(label);
+        if (sc > best) { best = sc; bestId = d.deviceId; }
+      });
+      if (!inputs.length) {
+        var o = document.createElement('option');
+        o.value = ''; o.textContent = '未找到麦克风';
+        micSelect.appendChild(o);
+      } else if (prev) micSelect.value = prev;
+      else if (bestId) micSelect.value = bestId;
+    } catch (e) {}
+  }
+  function scoreMic(label) {
+    label = label || '';
+    if (isVirtualMic(label)) return -100;
+    var s = 10;
+    if (/ugreen|usb|headset|realtek|麦克风|microphone|array/i.test(label)) s += 20;
+    if (/默认|default|通信|communication/i.test(label)) s += 5;
+    return s;
+  }
+
+  try { bind(); }
+  catch (e) {
+    statusText.textContent = '页面异常';
+    subText.textContent = String(e);
+  }
+})();
+</script>
+</body>
+</html>
