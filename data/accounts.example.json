@@ -1,0 +1,12 @@
+{
+  "accounts": [
+    {
+      "email": "you@example.com",
+      "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
+      "refresh_token": "",
+      "device_id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+      "proxy": "",
+      "status": "正常"
+    }
+  ]
+}
