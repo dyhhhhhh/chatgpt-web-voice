@@ -147,3 +147,4 @@ Not affiliated with OpenAI. Follow OpenAI ToS and local laws.
 
 - Live: https://voice.peekcart.com/
 - Issues: https://github.com/dyhhhhhh/chatgpt-web-voice/issues
+- Friend: [LINUX DO](https://linux.do/) - 新的理想型社区
