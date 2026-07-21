@@ -127,6 +127,21 @@
       cursor: pointer; color: var(--sub); font-size: 13px; user-select: none;
     }
     .advanced .box { margin-top: 10px; }
+
+    .github-promo {
+      position: fixed; left: 0; right: 0; bottom: 10px;
+      text-align: center; z-index: 20; pointer-events: none;
+    }
+    .github-promo a {
+      pointer-events: auto;
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 12px; border-radius: 999px;
+      background: rgba(255,255,255,.92); border: 1px solid var(--line);
+      box-shadow: 0 8px 24px rgba(0,0,0,.06);
+      color: #111; text-decoration: none; font-size: 12px;
+    }
+    .github-promo a:hover { border-color: #10a37f; color: #0b7f64; }
+    .github-promo img { height: 16px; width: 16px; }
     .toast {
       position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
       background: rgba(17,24,39,.92); color: #fff; padding: 10px 14px; border-radius: 999px;
@@ -201,7 +216,7 @@
   </style>
 </head>
 <body>
-  <div class="brand">语音通话</div>
+  <div class="brand">语音通话 · <a href="https://github.com/dyhhhhhh/chatgpt-web-voice" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline;text-underline-offset:2px">Open Source</a></div>
   <div class="wrap">
     <div class="stage">
       <div class="orb-wrap"><div id="orb" class="orb idle"></div></div>
