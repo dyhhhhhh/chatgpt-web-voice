@@ -1,0 +1,13 @@
+services:
+  chatgpt-web-voice:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      VOICE_AUTH_KEY: ${VOICE_AUTH_KEY:-change-me}
+      VOICE_HTTP_PROXY: ${VOICE_HTTP_PROXY:-}
+      VOICE_ACCOUNTS_FILE: /app/data/accounts.json
+      VOICE_SKIP_SSL_VERIFY: "true"
+    volumes:
+      - ./data:/app/data
+      - ./static:/app/static:ro
