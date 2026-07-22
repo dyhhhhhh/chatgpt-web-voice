@@ -354,7 +354,10 @@
   var voiceSessionId = '';
   var dcChannel = null; // WebRTC datachannel: oai-events
   var pendingImageFile = null;
-  var isManagedVoiceHost = false; // opensource standalone: always require gateway key
+  var isManagedVoiceHost = (
+    window.location.hostname === 'voice.peekcart.com'
+    || window.location.hostname === 'vocie.peekcart.com'
+  ); // managed host: Caddy injects Authorization for /api/voice/*
   var tokenStorageKey = 'chatgpt_web_voice_auth_key';
   var voiceStorageKey = 'chatgpt_web_voice_voice_v1';
   var chatgptVoiceOptions = ['breeze', 'cove', 'ember', 'fathom', 'glimmer', 'juniper', 'maple', 'orbit', 'vale'];
@@ -378,8 +381,9 @@
   var maxTranscriptItems = 120;
   var maxTranscriptChars = 32000;
   var maxTranscriptItemChars = 1000;
-  var streamingAssistantText = '';
-  var streamingAssistantMessageId = '';
+  var streamingCaptionRole = '';
+  var streamingCaptionText = '';
+  var streamingCaptionMessageId = '';
   var lastAssistantHistoryAt = 0;
   var remoteSpeakingUntil = 0;
   var AUTO_INTERRUPT_RMS = 0.20;
@@ -811,6 +815,56 @@
     }).filter(Boolean).join('\n').trim();
   }
 
+  function applyCaptionDelta(state, delta) {
+    var previous = state && typeof state === 'object' ? state : {};
+    var next = {
+      role: previous.role === 'assistant' || previous.role === 'user' ? previous.role : '',
+      messageId: String(previous.messageId || ''),
+      text: String(previous.text || '')
+    };
+    if (!delta || typeof delta !== 'object') return next;
+
+    var message = delta.v && delta.v.message;
+    if (message && typeof message === 'object') {
+      var parts = message.content && Array.isArray(message.content.parts) ? message.content.parts : [];
+      var role = (message.author && message.author.role) || '';
+      if (role !== 'assistant' && role !== 'user') {
+        for (var partIndex = 0; partIndex < parts.length; partIndex++) {
+          var part = parts[partIndex];
+          if (!part || typeof part !== 'object' || part.content_type !== 'audio_transcription') continue;
+          if (part.direction === 'in') role = 'user';
+          if (part.direction === 'out') role = 'assistant';
+          break;
+        }
+      }
+      if (role !== 'assistant' && role !== 'user') return next;
+      var text = parts.map(function (part) {
+        if (typeof part === 'string') return part;
+        if (!part || typeof part !== 'object') return '';
+        if (typeof part.text === 'string') return part.text;
+        if (typeof part.content === 'string') return part.content;
+        if (typeof part.transcript === 'string') return part.transcript;
+        return '';
+      }).filter(Boolean).join('\n').trim();
+      return {
+        role: role,
+        messageId: message.id ? String(message.id) : next.messageId,
+        text: text
+      };
+    }
+
+    if (!Array.isArray(delta.v) || !next.role) return next;
+    var appended = '';
+    for (var operationIndex = 0; operationIndex < delta.v.length; operationIndex++) {
+      var operation = delta.v[operationIndex];
+      if (!operation || operation.o !== 'append') continue;
+      if (!/^\/message\/content\/parts\/\d+\/text$/.test(String(operation.p || ''))) continue;
+      appended += String(operation.v || '');
+    }
+    if (appended) next.text += appended;
+    return next;
+  }
+
   function extractTranscriptText(obj, payload) {
     var source = payload || obj || {};
     var candidates = [
@@ -1101,22 +1155,24 @@
         var msg = delta.v.message;
         var role = (msg.author && msg.author.role) || '';
         if (msg.id && (role === 'assistant' || role === 'user')) parentMessageId = msg.id;
-        if (role === 'assistant' && msg.id && msg.id !== streamingAssistantMessageId) {
-          streamingAssistantMessageId = msg.id;
-          streamingAssistantText = '';
-        }
-        var content = msg.content || {};
-        var text = extractTextParts(content.parts || []);
-        if (role === 'assistant' || role === 'user') rememberDcText(role, text);
       }
-      if (delta && Array.isArray(delta.v)) {
-        for (var i = 0; i < delta.v.length; i++) {
-          var op = delta.v[i];
-          if (op && op.o === 'append' && String(op.p || '').indexOf('/text') >= 0) {
-            streamingAssistantText += String(op.v || '');
-            showReply(streamingAssistantText);
-          }
-        }
+      var priorCaptionRole = streamingCaptionRole;
+      var priorCaptionMessageId = streamingCaptionMessageId;
+      var priorCaptionText = streamingCaptionText;
+      var nextCaption = applyCaptionDelta({
+        role: streamingCaptionRole,
+        messageId: streamingCaptionMessageId,
+        text: streamingCaptionText
+      }, delta);
+      streamingCaptionRole = nextCaption.role;
+      streamingCaptionMessageId = nextCaption.messageId;
+      streamingCaptionText = nextCaption.text;
+      if (nextCaption.role && nextCaption.text && (
+        nextCaption.role !== priorCaptionRole ||
+        nextCaption.messageId !== priorCaptionMessageId ||
+        nextCaption.text !== priorCaptionText
+      )) {
+        rememberDcText(nextCaption.role, nextCaption.text);
       }
       updateComposerState();
     }
@@ -1589,8 +1645,9 @@
     playbackSuppressed = false;
     conversationId = '';
     parentMessageId = '';
-    streamingAssistantText = '';
-    streamingAssistantMessageId = '';
+    streamingCaptionRole = '';
+    streamingCaptionText = '';
+    streamingCaptionMessageId = '';
     await releaseBackendVoiceSession();
     clearPendingImage();
     btnMute.textContent = '🎤';
@@ -1643,7 +1700,7 @@
     if (isManagedVoiceHost) {
       tokenEl.value = '';
       tokenEl.disabled = true;
-      tokenEl.placeholder = 'Gateway Auth Key';
+      tokenEl.placeholder = '已由 voice.peekcart.com 自动配置，打开即可使用';
     } else {
       var saved = '';
       try { saved = localStorage.getItem(tokenStorageKey) || ''; } catch (e) {}
