@@ -136,7 +136,7 @@ Interrupt:
 
 ## Changelog
 
-See [Releases](https://github.com/dyhhhhhh/chatgpt-web-voice/releases) (`v0.1.0`).
+See [CHANGELOG.md](./CHANGELOG.md).
 
 ## License / disclaimer
 
