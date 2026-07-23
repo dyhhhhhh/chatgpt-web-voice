@@ -326,6 +326,15 @@ def upload_voice_image(
             timeout=60,
         )
         if meta_resp.status_code != 200:
+            if meta_resp.status_code == 401:
+                account_pool.mark_invalid(token)
+                if voice_session_id:
+                    release_voice_session(voice_session_id)
+                raise VoiceServiceError(
+                    "account token invalid",
+                    status_code=401,
+                    detail=(meta_resp.text or "")[:400],
+                )
             raise VoiceServiceError(
                 "files request failed status=%s" % meta_resp.status_code,
                 status_code=502 if meta_resp.status_code != 403 else 403,

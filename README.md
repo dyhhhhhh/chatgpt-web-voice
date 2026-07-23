@@ -49,6 +49,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 - Auto barge-in interrupt (`action_request: stop_speaking`)
 - Captions from `chat_message_delta`
 - Voice session token binding (`voice_session_id`)
+- In-call account failover: auto reconnect with another pool token when the active account dies or the call drops
 
 ## Topics
 
@@ -147,4 +148,3 @@ Not affiliated with OpenAI. Follow OpenAI ToS and local laws.
 
 - Live: https://voice.peekcart.com/
 - Issues: https://github.com/dyhhhhhh/chatgpt-web-voice/issues
-- Friend: [LINUX DO](https://linux.do/) - 新的理想型社区

@@ -407,6 +407,16 @@
   var pendingVoicePreview = false;
   var suppressPreviewAssistantUntil = 0;
   var micPermissionWarmed = false;
+  // In-call account failover: detect dead token / dropped call and reconnect with a new account.
+  var userWantsCall = false;
+  var autoFailoverEnabled = true;
+  var autoFailoverMaxAttempts = 3;
+  var autoFailoverCooldownMs = 2200;
+  var autoFailoverAttempts = 0;
+  var autoFailoverTimer = 0;
+  var autoFailoverInProgress = false;
+  var lastFailoverReason = '';
+  var disconnectGraceTimer = 0;
 
   function clampText(value, limit) {
     var text = String(value || '').trim();
@@ -1182,6 +1192,110 @@
     } else if (t.indexOf('audio_transcript') >= 0 || t.indexOf('response.audio_transcript') >= 0) {
       rememberDcText('assistant', extractTranscriptText(obj, p));
     }
+
+    // Account / quota signals from realtime voice DC.
+    if (t === 'usage_update' || (p && p.type === 'usage_update')) {
+      var usage = (p && p.type === 'usage_update') ? p : (obj.payload && obj.payload.type === 'usage_update' ? obj.payload : obj);
+      var instr = usage.instructions || (usage.payload && usage.payload.instructions) || {};
+      var rlm = usage.rate_limit_message || (usage.payload && usage.payload.rate_limit_message) || null;
+      var audioLeft = usage.audio_s;
+      if (audioLeft == null && usage.limits && usage.limits.audio) audioLeft = usage.limits.audio.remaining_seconds;
+      if (instr && instr.hang_up === true) {
+        log('usage hang_up', usage);
+        scheduleAccountFailover('usage_hang_up', 300);
+      } else if (rlm && (rlm.exceed_limit_message || rlm.exceeded || rlm.limit_reached)) {
+        log('usage rate_limit exceed', rlm);
+        scheduleAccountFailover('usage_rate_limit', 300);
+      } else if (typeof audioLeft === 'number' && audioLeft <= 5) {
+        log('usage audio nearly empty', audioLeft);
+        scheduleAccountFailover('usage_audio_exhausted', 800);
+      }
+    }
+    if (t === 'tool_update' || (p && p.type === 'tool_update')) {
+      var tu = (p && p.type === 'tool_update') ? p : obj;
+      var ut = tu.update_type || (tu.payload && tu.payload.update_type) || '';
+      if (String(ut).toLowerCase() === 'hangup' || String(ut).toLowerCase() === 'hang_up') {
+        log('tool_update hangup', tu);
+        scheduleAccountFailover('tool_hangup', 300);
+      }
+    }
+  }
+
+  function cancelDisconnectGrace() {
+    if (disconnectGraceTimer) {
+      clearTimeout(disconnectGraceTimer);
+      disconnectGraceTimer = 0;
+    }
+  }
+
+  function cancelAutoFailover() {
+    cancelDisconnectGrace();
+    if (autoFailoverTimer) {
+      clearTimeout(autoFailoverTimer);
+      autoFailoverTimer = 0;
+    }
+  }
+
+  function scheduleAccountFailover(reason, delayMs) {
+    if (!autoFailoverEnabled || !userWantsCall) return;
+    if (autoFailoverInProgress || starting) return;
+    if (autoFailoverAttempts >= autoFailoverMaxAttempts) {
+      log('failover exhausted', reason, autoFailoverAttempts);
+      setUI('error', '已断开', '账号多次失效，请稍后重试或检查账号池');
+      toast('多次切换账号仍失败，请检查账号池');
+      userWantsCall = false;
+      return;
+    }
+    // Collapse duplicate signals into one reconnect.
+    if (autoFailoverTimer) {
+      log('failover already scheduled', reason, 'pending=', lastFailoverReason);
+      return;
+    }
+    lastFailoverReason = String(reason || 'unknown');
+    var wait = (delayMs == null ? autoFailoverCooldownMs : delayMs);
+    if (wait < 0) wait = 0;
+    log('schedule failover', lastFailoverReason, 'in', wait, 'ms', 'attempt', autoFailoverAttempts + 1);
+    autoFailoverTimer = setTimeout(function () {
+      autoFailoverTimer = 0;
+      runAccountFailover(lastFailoverReason);
+    }, wait);
+  }
+
+  async function runAccountFailover(reason) {
+    if (!autoFailoverEnabled || !userWantsCall) return;
+    if (autoFailoverInProgress) return;
+    if (autoFailoverAttempts >= autoFailoverMaxAttempts) {
+      setUI('error', '已断开', '账号多次失效，请稍后重试');
+      userWantsCall = false;
+      return;
+    }
+    autoFailoverInProgress = true;
+    autoFailoverAttempts += 1;
+    var n = autoFailoverAttempts;
+    var max = autoFailoverMaxAttempts;
+    log('run failover', reason, n + '/' + max);
+    try {
+      setUI('connecting', '切换账号中', '检测到账号/连接异常，正在换号重连 (' + n + '/' + max + ')');
+      toast('账号异常，正在切换账号重连 (' + n + '/' + max + ')…');
+      await stopCall(false, { fromFailover: true, preserveTranscript: true, preserveHistory: true });
+      // Ensure next session picks a fresh account binding.
+      voiceSessionId = '';
+      await startCall({ failover: true });
+      if (inCall || starting) {
+        toast('已切换账号并重新连接');
+      }
+    } catch (e) {
+      log('failover error', String(e));
+      setUI('error', '切换失败', String(e.message || e));
+      toast('切换账号失败: ' + String(e.message || e));
+      if (userWantsCall && autoFailoverAttempts < autoFailoverMaxAttempts) {
+        scheduleAccountFailover('failover_retry', autoFailoverCooldownMs);
+      } else {
+        userWantsCall = false;
+      }
+    } finally {
+      autoFailoverInProgress = false;
+    }
   }
 
   function getToken() {
@@ -1267,7 +1381,12 @@
         var msg = (data && data.detail && (data.detail.error || JSON.stringify(data.detail))) || ('HTTP ' + resp.status);
         toast(msg);
         log('http send image fail', msg, data);
-        setUI('listening', '聆听中', '图片发送失败，可重试');
+        if (resp.status === 401 || /token|账号|失效|unauthorized|invalid access/i.test(String(msg))) {
+          setUI('connecting', '切换账号中', '图片接口鉴权失败，准备换号');
+          scheduleAccountFailover('upload_401', 200);
+        } else {
+          setUI('listening', '聆听中', '图片发送失败，可重试');
+        }
         return;
       }
       var text = (textInput.value || '').trim();
@@ -1452,9 +1571,12 @@
     }
   }
 
-  async function startCall() {
-    if (starting || inCall) return;
+  async function startCall(options) {
+    options = options || {};
+    var isFailover = !!options.failover;
+    if (starting || (inCall && !isFailover)) return;
     starting = true;
+    userWantsCall = true;
     try {
       await stopVoicePreviewOnly();
       var token = (tokenEl.value || '').trim();
@@ -1463,16 +1585,24 @@
         document.querySelector('.advanced') && (document.querySelector('.advanced').open = true);
         toast('请先在高级设置填写登录密钥');
         tokenEl.focus();
+        userWantsCall = false;
         return;
       }
       if (token) {
         try { localStorage.setItem(tokenStorageKey, token); } catch (e) {}
       }
 
-      setUI('connecting', '连接中', '正在开启麦克风');
-      await stopCall(false);
-      resetCurrentSessionHistory();
-      resetCurrentTranscript();
+      setUI('connecting', isFailover ? '切换账号中' : '连接中', isFailover ? '正在用新账号重建通话' : '正在开启麦克风');
+      if (!isFailover) {
+        await stopCall(false, { preparingRestart: true });
+        resetCurrentSessionHistory();
+        resetCurrentTranscript();
+      } else {
+        // Failover already stopped media; keep captions/history for UX.
+        conversationId = '';
+        parentMessageId = '';
+        voiceSessionId = '';
+      }
       updateTranscriptMeta();
 
       localStream = await requestMic();
@@ -1543,22 +1673,56 @@
         startMeter(remoteStream, 'remote');
       };
       pc.oniceconnectionstatechange = function () {
+        if (!pc) return;
         log('ice', pc.iceConnectionState);
+        if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+          cancelDisconnectGrace();
+        }
         if (pc.iceConnectionState === 'failed') {
-          setUI('error', '连接失败', '网络或代理异常');
-          toast('连接失败');
+          if (userWantsCall && autoFailoverEnabled) {
+            scheduleAccountFailover('ice_failed', 400);
+          } else {
+            setUI('error', '连接失败', '网络或代理异常');
+            toast('连接失败');
+          }
         }
       };
       pc.onconnectionstatechange = function () {
+        if (!pc) return;
         log('conn', pc.connectionState);
         if (pc.connectionState === 'connected') {
+          cancelDisconnectGrace();
           inCall = true;
+          // Successful media connect clears the failover streak.
+          autoFailoverAttempts = 0;
+          lastFailoverReason = '';
           beginAutoInterruptCalibration();
-          setUI('listening', '聆听中', '已连接，请开始说话');
+          setUI('listening', '聆听中', isFailover ? '已切换账号，请继续说话' : '已连接，请开始说话');
           setTimeout(sendVoicePreviewGreeting, 700);
         }
-        if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-          if (inCall) setUI('error', '已断开', '通话结束');
+        if (pc.connectionState === 'failed') {
+          if (inCall || userWantsCall) {
+            if (autoFailoverEnabled && userWantsCall) scheduleAccountFailover('connection_failed', 300);
+            else setUI('error', '已断开', '通话结束');
+          }
+        }
+        if (pc.connectionState === 'disconnected') {
+          // Brief ICE blips are common; only failover after a short grace window.
+          if ((inCall || userWantsCall) && autoFailoverEnabled && userWantsCall) {
+            cancelDisconnectGrace();
+            disconnectGraceTimer = setTimeout(function () {
+              disconnectGraceTimer = 0;
+              if (!pc) return;
+              if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+                scheduleAccountFailover('connection_disconnected', 0);
+              }
+            }, 2500);
+          } else if (inCall) {
+            setUI('error', '已断开', '通话结束');
+          }
+        }
+        if (pc.connectionState === 'closed') {
+          cancelDisconnectGrace();
         }
       };
 
@@ -1589,13 +1753,28 @@
       try { data = await resp.json(); } catch (e) {}
       if (!resp.ok) {
         var msg = (data && data.detail && (data.detail.error || JSON.stringify(data.detail))) || ('HTTP ' + resp.status);
+        log('session fail', resp.status, msg, data);
+        if ((resp.status === 401 || resp.status === 503) && userWantsCall && autoFailoverEnabled && autoFailoverAttempts < autoFailoverMaxAttempts && isFailover) {
+          setUI('error', '切换失败', msg);
+          toast(msg);
+          await stopCall(false, { fromFailover: true, preserveTranscript: true, preserveHistory: true });
+          scheduleAccountFailover('session_' + resp.status, autoFailoverCooldownMs);
+          return;
+        }
+        if ((resp.status === 401 || /token|账号|失效|unauthorized/i.test(String(msg))) && userWantsCall && autoFailoverEnabled && !isFailover && autoFailoverAttempts < autoFailoverMaxAttempts) {
+          setUI('connecting', '切换账号中', '建连鉴权失败，准备换号');
+          await stopCall(false, { fromFailover: true, preserveTranscript: true, preserveHistory: true });
+          scheduleAccountFailover('session_401', 200);
+          return;
+        }
         setUI('error', '无法开始', msg);
         toast(msg);
+        userWantsCall = false;
         await stopCall(false);
         return;
       }
       voiceSessionId = data.voice_session_id || data.session_id || '';
-      log('session ok', data.account_email, data.proxy_source);
+      log('session ok', data.account_email, data.proxy_source, isFailover ? 'failover' : 'normal');
       await pc.setRemoteDescription({ type: 'answer', sdp: data.answer_sdp });
       inCall = true;
       setUI('connecting', '连接中', '正在进入通话');
@@ -1605,14 +1784,30 @@
       log('start error', String(e));
       setUI('error', '无法开始', String(e.message || e));
       toast(String(e.message || e));
-      await stopCall(false);
+      if (isFailover && userWantsCall && autoFailoverEnabled && autoFailoverAttempts < autoFailoverMaxAttempts) {
+        await stopCall(false, { fromFailover: true, preserveTranscript: true, preserveHistory: true });
+        scheduleAccountFailover('start_error', autoFailoverCooldownMs);
+      } else {
+        userWantsCall = false;
+        await stopCall(false);
+      }
     } finally {
       starting = false;
     }
   }
 
-  async function stopCall(updateText) {
+  async function stopCall(updateText, options) {
     if (updateText === undefined) updateText = true;
+    options = options || {};
+    var fromFailover = !!options.fromFailover;
+    var preparingRestart = !!options.preparingRestart;
+    // User hangup clears intent; failover/restart prep keeps userWantsCall.
+    if (!fromFailover && !preparingRestart) {
+      userWantsCall = false;
+      cancelAutoFailover();
+      autoFailoverAttempts = 0;
+      lastFailoverReason = '';
+    }
     clearInterval(0);
     if (localRaf) cancelAnimationFrame(localRaf);
     if (remoteRaf) cancelAnimationFrame(remoteRaf);
@@ -1651,7 +1846,7 @@
     await releaseBackendVoiceSession();
     clearPendingImage();
     btnMute.textContent = '🎤';
-    if (updateText) setUI('idle', '准备就绪', '点击下方按钮开始');
+    if (updateText && !fromFailover) setUI('idle', '准备就绪', '点击下方按钮开始');
     updateTranscriptMeta();
     updateComposerState();
   }
@@ -1667,8 +1862,14 @@
   function bind() {
     clearStoredConversationHistory();
     btnMain.onclick = function () {
-      if (inCall || starting) stopCall(true);
-      else startCall();
+      if (inCall || starting || autoFailoverInProgress || autoFailoverTimer) {
+        userWantsCall = false;
+        cancelAutoFailover();
+        stopCall(true);
+      } else {
+        autoFailoverAttempts = 0;
+        startCall();
+      }
     };
     btnMute.onclick = toggleMute;
     btnSpeaker.onclick = function () { ensureRemotePlay(true); toast('已尝试解锁声音'); };
